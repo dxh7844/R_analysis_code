@@ -1,0 +1,770 @@
+######Temporal dynamics of rare and abundant soil bacterial taxa from different fertilization regimes under various environmental disturbances######
+######raw split sequence analysis########
+gunzip *.gz
+rename 's/\.R1\.fq/\_R1\.fq/'  *.fq   
+rename 's/\.R2\.fq/\_R2\.fq/'  *.fq 
+##merged
+usearch -fastq_mergepairs *_R1.fq -fastqout merged.fq  -relabel @
+##trimming the adaptors and primer sequences and quality filtertering
+vsearch --fastx_filter merged.fq --fastq_stripleft 19 --fastq_stripright 20 -fastq_trunclen 300 -fastq_maxee 0.5 -fastaout filtered.fa --fastq_qmax 42
+vsearch --derep_fulllength filtered.fa --sizeout --minuniquesize 8 --output uniques.fa
+##clustered at 97% level
+vsearch --cluster_fast uniques.fa --id 0.97 --centroids outvsearch.fa --fasta_width 0 --relabel OTU_
+vsearch --uchime_ref outvsearch.fa --db rdp_gold.fa --nonchimeras otus.fa -sizeout -fasta_width 0
+vsearch --usearch_global filtered.fa --db otus.fa --id 0.97 --otutabout otutab_raw.txt
+##Phylogenetic tree
+muscle -in otus.fa -out seq.afa -maxiters 2 -diags
+FastTree -gtr -nt < seq.afa > tree_file
+
+######Subsampled##########
+library(GUniFrac)
+library(picante)
+library(ape) 
+Otu_tab1 <- read.table("otutab.txt",row.names=1,header=T,sep="\t",check.names=FALSE)
+Otu_tab <- as.data.frame(t(Otu_tab1))
+Otu_tab_rff <- Rarefy(Otu_tab)$ otu.tab.rff
+a <- t(Otu_tab_rff)
+write.csv(a,file="botu_chouping.csv")
+
+#######Definition of abundant and rare taxa#######
+otu <- read.delim('otu_table.txt', row.names = 1)
+otu_ART <- otu[apply(otu, 1, function(x) max(x)<0.0001), ]
+write.table(otu_ART, 'otu_ART.txt', col.names = NA, sep = '\t', quote = FALSE)
+otu_AAT <- otu[apply(otu, 1, function(x) min(x)>0.01), ]
+write.table(otu_AAT, 'otu_AAT.txt', col.names = NA, sep = '\t', quote = FALSE)
+otu_MT <- otu[apply(otu, 1, function(x) max(x)<0.01 & min(x)>0.0001), ]
+write.table(otu_MT, 'otu_MT.txt', col.names = NA, sep = '\t', quote = FALSE)
+otu_CRT <- otu[apply(otu, 1, function(x) max(x)<=0.01 & min(x)<0.0001), ]
+otu_CRT <- otu_CRT[!rownames(otu_CRT) %in% rownames(otu_ART),]
+write.table(otu_CRT, 'otu_CRT.txt', col.names = NA, sep = '\t', quote = FALSE)
+otu_CAT <- otu[apply(otu, 1, function(x) min(x)>=0.0001 & max(x)>0.01), ]
+otu_CAT <- otu_CAT[!rownames(otu_CAT) %in% rownames(otu_AAT),]
+write.table(otu_CAT, 'otu_CAT.txt', col.names = NA, sep = '\t', quote = FALSE)
+otu_CRAT <- otu[apply(otu, 1, function(x) max(x)>0.01 & min(x)<0.0001), ]
+write.table(otu_CRAT, 'otu_CRAT.txt', col.names = NA, sep = '\t', quote = FALSE)
+
+#######Sankey plot#########
+The sankey plot was performed in the website: https://sankeymatic.com/
+
+########Alpha diverssity###########
+library(vegan)
+otu <- read.delim('botu_chouping.txt', row.names = 1, sep = '\t', stringsAsFactors = FALSE, check.names = FALSE)
+otu <- t(otu)
+#Shannon diversity
+shannon_index <- diversity(otu, index = 'shannon', base = exp(1))
+shannon_diversity <- exp(1)^shannon_index
+write.csv(alpha_all, 'bac_alpha.csv', quote = FALSE)
+
+library(ggplot2)
+library(reshape2)
+library(ggpubr)
+library(ggThemeAssist)
+m<- read.csv("1.csv",header=TRUE)
+windowsFonts(myFont=windowsFont("Arial")) 
+p <- ggplot(data=m,aes(time,shannon)) + 
+  geom_boxplot(aes(fill=time)) + 
+  facet_wrap(~stress)+ 
+  theme(axis.text.x=element_text(angle=0,hjust=0.5, vjust=0.5)) + 
+  xlab("Time")+
+  ylab("BC dissimilarity") + 
+  theme(panel.background = element_rect(fill = "gray100"),panel.grid.major=element_line(colour="gray85")) + 
+  theme(axis.line = element_line(colour = "gray65"), panel.background = element_rect(colour = "gray85", linetype = "solid"))
+p
+my_comparisons <- list(c("B", "C"),c("C", "D"), c("D", "E"),c("B", "D"),c("B", "E"),c("C", "E"))
+p+stat_compare_means(method = "t.test",label = "p.signif",comparisons=my_comparisons)
+
+###LRR
+m<- read.csv("1.csv",header=TRUE)
+windowsFonts(myFont=windowsFont("Arial")) 
+p <- ggplot(data=m,aes(stress,LRR)) + 
+  geom_boxplot(aes(fill=stress)) + 
+  facet_wrap(~fertilizer)+ 
+  theme(axis.text.x=element_text(angle=0,hjust=0.5, vjust=0.5)) + 
+  xlab("Time")+
+  ylab("Simpson diversity") + theme(panel.background = element_rect(fill = "gray100"),panel.grid.major=element_line(colour="gray85")) + theme(axis.line = element_line(colour = "gray65", 
+                                                                                                                                                                       linetype = "solid"), plot.background = element_rect(colour = NA, linetype = "solid"))
+p
+
+my_comparisons <- list(c("ABUNANT", "COMMON"),c("COMMON", "RARE"),c("ABUNANT", "RARE"))
+p+stat_compare_means(method = "t.test",label = "p.signif",comparisons=my_comparisons)
+
+#########Beta diversity########
+library(vegan)
+library(ape)
+data <- read.csv("botu_chouping.txt", head=TRUE,sep="\t",row.names = 1)
+data <- t(data)
+data[is.na(data)] <- 0
+data <- vegdist(data, method = "bray")
+bray <- as.matrix(data)
+write.table(bray,"bray-crutis-NCF-ABUNDANT.txt",sep = "\t")
+##PCoA analysis
+data <- read.table("bray-crutis-NCF-ABUNDANT.txt", head=TRUE,sep="\t",row.names = 1)
+pcoa<- pcoa(data, correction = "none", rn = NULL)
+PC1 = pcoa$vectors[,1]
+PC2 = pcoa$vectors[,2]
+plotdata <- data.frame(PC1,PC2)
+colnames(plotdata) <-c("PC1","PC2")
+write.table(plotdata,"pcoa-bray-crutis-NCF-ABUNDANT.txt",sep = "\t")
+library(ggplot2)
+library(ggThemeAssist)
+groups <- read.table("group-NCF.txt",sep = "\t",header = F,colClasses = c("character"))
+groups <- as.list(groups)
+PC1 = pcoa$vectors[,1]
+PC2 = pcoa$vectors[,2]
+plotdata <- data.frame(rownames(pcoa$vectors),PC1,PC2,groups$V2,groups$V3)
+colnames(plotdata) <-c("sample","PC1","PC2","colour","alpha")
+pich=c(21:23)
+n=c(0.4,0.6,0.8,1)
+cbbPalette <- c( "#009ad6","#6950a1","#f58220", "#7fb80e","#00ae9d", "#ef4136")
+pc1 <-floor(pcoa$values$Relative_eig[1]*100)
+pc2 <-floor(pcoa$values$Relative_eig[2]*100)
+
+ggplot(plotdata, aes(PC1, PC2)) +
+  geom_point(aes(fill=colour,colour=colour,alpha=alpha),size=4,shape=22)+ 
+  scale_alpha_manual(values=n)+
+  scale_colour_manual(values=cbbPalette)+
+  scale_fill_manual(values=cbbPalette)+
+  labs(title="PCoA") + 
+  xlab(paste("PC1 ( ",pc1,"%"," )",sep="")) + 
+  ylab(paste("PC2 ( ",pc2,"%"," )",sep=""))  + theme(panel.grid.major = element_line(colour = "gray85"), 
+                                                     panel.background = element_rect(fill = "gray100", 
+                                                                                     colour = "gray85", linetype = "solid"), 
+                                                     plot.background = element_rect(colour = NA, 
+                                                                                    linetype = "solid"))
+
+######permanova analysis###########
+library("vegan")
+otu<-read.csv("otu.csv",header=TRUE,row.names=1)
+otu <- data.frame(t(otu))
+group<-read.csv("group.csv",header=TRUE,row.names=1)
+group$time<-factor(group$time,levels=unique(group$time),ordered=T)
+adonis_result_otu <- adonis(otu~stress*time, group, permutations = 999, distance = 'bray') 
+adonis_result_otu
+otuput <- data.frame(adonis_result_otu$aov.tab, check.names = FALSE, stringsAsFactors = FALSE)
+otuput <- cbind(rownames(otuput), otuput)
+names(otuput) <- c('', 'Df', 'Sums of squares', 'Mean squares', 'F.Model', 'Variation (R2)', 'Pr (>F)')
+write.table(otuput, file = 'PERMANOVA.result_all.txt', row.names = FALSE, sep = '\t', quote = FALSE, na = '')
+
+#######Bray-Curtis disimilarity#########
+library(ggplot2)
+library(reshape2)
+library(ggpubr)
+library(ggThemeAssist)
+m<- read.csv("1.csv",header=TRUE)
+windowsFonts(myFont=windowsFont("Arial")) #要修改字体，先要初始化字体
+p <- ggplot(data=m,aes(time,BC)) + 
+  geom_boxplot(aes(fill=treatment)) + 
+  facet_wrap(~com)+ 
+  theme(axis.text.x=element_text(angle=0,hjust=0.5, vjust=0.5)) + 
+  xlab("Time")+
+  ylab("BC dissimilarity") + theme(panel.background = element_rect(fill = "gray100"),panel.grid.major=element_line(colour="gray85")) + theme(axis.line = element_line(colour = "gray65", 
+  linetype = "solid"), plot.background = element_rect(colour = NA, linetype = "solid")) + theme(panel.grid.minor = element_line(colour = NA), 
+    panel.background = element_rect(colour = "gray85", 
+        linetype = "solid"))
+p
+my_comparisons <- list(c("B", "C"),c("C", "D"), c("D", "E"))
+p+stat_compare_means(method = "t.test",label = "p.signif",comparisons=my_comparisons)
+
+##########pairwise Wald tests###########
+library(tidyverse)
+library(apeglm)
+library(DESeq2)
+library(XML)
+mycounts<- read.csv("readcount.csv",row.names=1,header=TRUE)
+head(mycounts)
+condition <- factor(c(rep("control",4),rep("treat",4)), levels = c("control","treat"))
+condition
+colData <- data.frame(row.names=colnames(mycounts), condition)
+colData
+dds <- DESeqDataSetFromMatrix(mycounts, colData, design= ~ condition)
+dds <- DESeq(dds)
+dds
+res_apeglm <- lfcShrink(dds,coef="condition_treat_vs_control",type="apeglm")#进行apeglm收缩
+write.csv(res_apeglm,file="All_results.csv")
+
+#ggplot2
+library(ggplot2)
+deseq_res <- read.csv("NCFHE4_results.csv",row.names=1,header=TRUE)
+classify <- read.csv("classify.csv",header=TRUE)
+diff_gene <-subset(deseq_res,padj < 0.05 & (log2FoldChange > 1 | log2FoldChange < -1))
+df<-rownames(diff_gene)
+A<-intersect(df, classify$A)
+C<-intersect(df, classify$B)
+R<-intersect(df, classify$C)
+deseq_res[which(deseq_res$padj %in% NA),'sig'] <- 'no diff'
+deseq_res[A,'sig'] <- 'ABUNDANT'
+deseq_res[C,'sig'] <- 'COMMON'
+deseq_res[R,'sig'] <- 'RARE'
+deseq_res[which(abs(deseq_res$log2FoldChange) < 1 | deseq_res$padj >= 0.05),'sig'] <- 'no diff'
+#c('#ef4136','#694d9f' ,'gray50', '#00ae9d')
+A20 <- ggplot(deseq_res, aes(y = log2FoldChange, x = log10(baseMean))) +
+  geom_point(aes(color = sig), alpha = 0.5, size = 0.5) +
+  scale_color_manual(values = c('#ef4136','#694d9f' ,'gray50', '#00ae9d')) +
+  theme(panel.grid = element_blank(), panel.background = element_rect(color = 'black', fill = 'transparent')) +
+  theme(legend.position = 'none') +
+  geom_hline(yintercept = c(-1, 1), color = 'gray', size = 0.25) + 
+  labs(y = "", x = "") +
+  ylim(-9, 9)
+ggsave('volcano_NOFHE4.pdf', volcano_count, width = 3, height = 2)
+
+result<-list(A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,A13,A14,A15,A16,A17,A18,A19,A20)
+result<-list(C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C11,C12,C13,C14,C15,C16,C17,C18,C19,C20)
+result<-list(R1,R2,R3,R4,R5,R6,R7,R8,R9,R10,R11,R12,R13,R14,R15,R16,R17,R18,R19,R20)
+result2 <- do.call(cbind,
+                     lapply(lapply(result, unlist), `length<-`,
+                            max(lengths(result))))
+write.csv(result2,file="NOF_RARE.csv")
+
+##########quantitative model based on the stability landscape concept######
+The code of this part was modified according to the reference below.
+Shaw LP, Bassam H, Barnes CP, Walker AS, Klein N, Balloux F. 2019. Modelling microbiome recovery after antibiotics using a stability landscape framework. ISME J 13:1845–1856.
+
+```{r load-libraries, results=FALSE, warnings=FALSE}
+# Required libraries
+require(phyloseq)
+require(vegan)
+require(picante)
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(tidyr))
+suppressPackageStartupMessages(library(ggplot2))
+library(rstan)
+library(bridgesampling)
+library(reshape2)
+require(broman)
+require(knitr)
+```# Fitting models with Stan
+
+We use Stan to fit our model to the experimental data.
+
+```{r fitmodels, cache=cacheing, warning=FALSE, results=FALSE}
+# Default theme
+theme_set(theme_bw() + theme(panel.margin = grid::unit(0, "lines")))
+
+set.seed(4711)
+
+### USEFUL FUNCTIONS
+# The original model (model 1)
+ssfol <- function(D, phi1, phi2, t){
+  y <- D * exp(phi1) * exp(phi2) / (exp(phi2) - exp(phi1)) * 
+    (exp(-exp(phi1)*t) - exp(-exp(phi2)*t))
+  return(y)
+}
+# The model plus asymptote (model 2)
+ssfolAsym <- function(D, phi1, phi2, Asym, t){
+  y <- D * exp(phi1) * exp(phi2) / (exp(phi2) - exp(phi1)) * 
+    (exp(-exp(phi1)*t) - exp(-exp(phi2)*t)) + Asym*(1-exp(-exp(phi1)*t))
+  return(y)
+}
+# Compare two models
+compare_models <- function(model1, model2, method="normal"){
+  bs.model1 <- bridge_sampler(model1, method = method)
+  bs.model2 <- bridge_sampler(model2, method = method)
+  return(bf(bs.model1, bs.model2))
+}
+
+# STAN Models
+## MODELS TO USE
+####
+# Initial model (no alternative stable state)
+model.no.asym <- 'models/Supplementary-File-1.stan' 
+# Model 2 (alternative stable state allowed)
+model <- 'models/Supplementary-File-2.stan' 
+
+# PARAMETERS
+iterations <- 10000
+warmups <- 1000
+
+# Function to fit stan models and calculate Bayes factor
+fitStan <- function(antibiotic, data, site){
+  antibiotic.df <- data[data$V5==antibiotic,]
+  antibiotic.data <- list(N=nrow(antibiotic.df), n_subject=nrow(antibiotic.df)/5, concs=antibiotic.df$V2, times=antibiotic.df$V1/60, subjects=as.vector(sapply(seq(1, nrow(antibiotic.df)/5), function(x) rep(x, 5))))
+  antibiotic.data <- list(N=nrow(antibiotic.df), n_subject=nrow(antibiotic.df)/5, concs=antibiotic.df$V2, times=antibiotic.df$V1/60, subjects=as.vector(sapply(seq(1, nrow(antibiotic.df)/5), function(x) rep(x, 5))))
+  # Fit model 1 (without asymptote)
+  mr.stan.no.asym =  stan(model.no.asym, chains = 4, iter = iterations, data = antibiotic.data,warmup = warmups)
+  # Fit model 2 (with asymptote)
+  mr.stan =  stan(model, chains = 4, iter = iterations, data = antibiotic.data, warmup = warmups)
+  # Compare the two models
+  bayes.factor <- compare_models(mr.stan, mr.stan.no.asym)
+  # Save objects
+  saveRDS(antibiotic.data, file=paste('fitted-objects/', site, '-', antibiotic, '-points.rds', sep=''))
+  saveRDS(bayes.factor, file=paste('fitted-objects/', site, '-', antibiotic, '-bayes-factor.rds', sep=''))
+  saveRDS(mr.stan, file=paste('fitted-objects/', site, '-', antibiotic, '-full-model.rds', sep=''))
+  saveRDS(mr.stan.no.asym, file=paste('fitted-objects/', site, '-', antibiotic, '-no-asym-model.rds', sep=''))
+}
+
+###################
+# Oral microbiome #
+##################
+
+# Read in precalculated bootstrapped data 
+oral <- read.csv('data/oral_PD_200_mean.csv', header=F)
+
+# Four antibiotics
+fitStan("clinda", oral, "oral")
+fitStan("cipro", oral, "oral")
+fitStan("minoc", oral, "oral")
+fitStan("amox", oral, "oral")
+fitStan("placebo", oral, "oral")
+
+```
+##################
+# Gut microbiome #
+##################
+
+# Read in precalculated data 
+gut <- read.csv('data/gut_PD_200_mean.csv', header=F)
+fitStan("clinda", data=gut, site='gut')
+fitStan("cipro", data=gut, site='gut')
+fitStan("minoc", data=gut, site='gut')
+fitStan("amox", data=gut, site='gut')
+fitStan("placebo", data=gut, site='gut')
+
+clinda.bf <- readRDS('fitted-objects/gut-clinda-bayes-factor.rds')
+cipro.bf <- readRDS('fitted-objects/gut-cipro-bayes-factor.rds')
+minoc.bf <- readRDS('fitted-objects/gut-minoc-bayes-factor.rds')
+amox.bf <- readRDS('fitted-objects/gut-amox-bayes-factor.rds')
+
+```
+Plotting 
+
+Now we have everything we need to produce versions of the final figures in the paper. 
+
+```{r plot-fits, cache=cacheing}
+# Multiplot function from http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+# Function to make plot of model and points
+makePlot <- function(data.df, stan.model, asymptote=TRUE, model.colour='grey', ylimits=c(0,7), title=""){
+  plot(data.df$times, data.df$concs, pch=19, xlab="", ylab="", ylim=ylimits,
+       cex.lab=2, cex.axis=2)
+  times <- seq(0, 12, 0.1)
+  stan.model.ex <- extract(stan.model)
+  points <- matrix(nrow=100000, ncol=length(times))
+  for(i in seq(1,100000)){
+    if (asymptote==TRUE){
+      points[i,] <- ssfolAsym(D=stan.model.ex$D[i], phi1=stan.model.ex$phi1[i], 
+                              phi2=stan.model.ex$phi2[i], Asym=stan.model.ex$Asym[i], times)
+    }
+    else{
+      points[i,] <- ssfol(D=stan.model.ex$D[i], phi1=stan.model.ex$phi1[i], 
+                          phi2=stan.model.ex$phi2[i],times)
+    }
+  }
+  # Add zero line
+  abline(a=0,b=0, lwd=3, lty=2, col='grey')
+  
+  
+  # Add 2.5%, median, 97.5% lines
+  points.lower <-  apply(na.omit(points), function(x) quantile(x, probs = 0.025), MARGIN=2)
+  points.median <- apply(na.omit(points), function(x) quantile(x, probs = 0.5), MARGIN=2)
+  points.upper <- apply(na.omit(points), function(x) quantile(x, probs=0.975), MARGIN=2)
+  points(times, points.median, type='l', col=model.colour, lwd=2)
+  points(times, points.lower, type='l', col=model.colour, lwd=2, lty=2)
+  points(times, points.upper, type='l', col=model.colour, lwd=2, lty=2)
+  
+  # add data points on top
+  points(data.df$times, data.df$concs, pch=19)
+  
+}
+
+# Function for model with/without alternative stable state
+makeAntibioticPlotNoAsym <- function(antibiotic, site, model.colour){
+  antibiotic.data <- readRDS(paste('fitted-objects/', site, '-', antibiotic, '-points.rds', sep=''))
+  model <- readRDS(paste('fitted-objects/', site, '-', antibiotic, '-no-asym-model.rds', sep=''))
+  makePlot(antibiotic.data, model, asymptote=FALSE, model.colour=model.colour)
+}
+makeAntibioticPlotAsym <- function(antibiotic, site, model.colour){
+  antibiotic.data <- readRDS(paste('fitted-objects/', site, '-', antibiotic, '-points.rds', sep=''))
+  model <- readRDS(paste('fitted-objects/', site, '-', antibiotic, '-full-model.rds', sep=''))
+  makePlot(antibiotic.data, model, asymptote=TRUE, model.colour=model.colour)
+}
+```
+## Figure 2
+See `figures/Figure-2-model-1-fits.pdf`
+```{r figure2, warning=FALSE, cache=cacheing}
+############
+# FIGURE 2 #
+############
+# Model 1 fits (corresponding to Figure 2 of paper)
+pdf('figures/Figure-2-model-1-fits.pdf', width=25, height=10)
+par(mfrow=c(2,5))
+# Oral microbiome
+makeAntibioticPlotNoAsym("placebo", "oral", "blue")
+makeAntibioticPlotNoAsym("amox", "oral", "orange")
+makeAntibioticPlotNoAsym("minoc", "oral", "purple")
+makeAntibioticPlotNoAsym("cipro", "oral", "green")
+makeAntibioticPlotNoAsym("clinda", "oral", "red")
+# Gut microbiome
+makeAntibioticPlotNoAsym("placebo", "gut", "blue")
+makeAntibioticPlotNoAsym("amox", "gut", "orange")
+makeAntibioticPlotNoAsym("minoc", "gut", "purple")
+makeAntibioticPlotNoAsym("cipro", "gut", "green")
+makeAntibioticPlotNoAsym("clinda", "gut", "red")
+dev.off()
+```
+## Figure 3
+See `figures/Figure-3-model-2-fits.pdf`
+```{r figure3, warning=FALSE, cache=cacheing}
+############
+# FIGURE 3 #
+############
+# Model 2 fits (corresponding to Figure 3 of paper)
+pdf('figures/Figure-3-model-2-fits.pdf', width=25, height=10)
+par(mfrow=c(2,5))
+# Oral microbiome
+makeAntibioticPlotNoAsym("placebo", "oral", "blue")
+makeAntibioticPlotAsym("amox", "oral", "orange")
+makeAntibioticPlotAsym("minoc", "oral", "purple")
+makeAntibioticPlotAsym("cipro", "oral", "green")
+makeAntibioticPlotAsym("clinda", "oral", "red")
+# Gut microbiome
+makeAntibioticPlotNoAsym("placebo", "gut", "blue")
+makeAntibioticPlotAsym("amox", "gut", "orange")
+makeAntibioticPlotAsym("minoc", "gut", "purple")
+makeAntibioticPlotAsym("cipro", "gut", "green")
+makeAntibioticPlotAsym("clinda", "gut", "red")
+dev.off()
+```
+## Figure 4
+See `figures/Figure-4-parameter-plots.pdf`.
+```{r figure4, warning=FALSE, cache=cacheing}
+############
+# FIGURE 4 #
+############
+## PARAMETER PLOTS
+# Read in data
+cipro.oral <- rstan::extract(readRDS('fitted-objects/oral-cipro-full-model.rds'))
+clinda.oral <- rstan::extract(readRDS('fitted-objects/oral-clinda-full-model.rds'))
+minoc.oral <- rstan::extract(readRDS('fitted-objects/oral-minoc-full-model.rds'))
+amox.oral <- rstan::extract(readRDS('fitted-objects/oral-amox-full-model.rds'))
+
+cipro.gut <- rstan::extract(readRDS('fitted-objects/gut-cipro-full-model.rds'))
+clinda.gut <- rstan::extract(readRDS('fitted-objects/gut-clinda-full-model.rds'))
+minoc.gut <- rstan::extract(readRDS('fitted-objects/gut-minoc-full-model.rds'))
+amox.gut <- rstan::extract(readRDS('fitted-objects/gut-amox-full-model.rds'))
+
+# PARAMETER PLOTTING
+ylimits <- c(0, 1.75)
+# Parameter: D
+sample.size <- 10000
+d.oral <- cbind(sample(na.omit(cipro.oral$D), size = sample.size),
+                sample(na.omit(clinda.oral$D), size = sample.size),
+                sample(na.omit(minoc.oral$D), size = sample.size),
+                sample(na.omit(amox.oral$D), size = sample.size))
+colnames(d.oral) <- c("Ciprofloxacin", "Clindamycin", "Minocycline", "Amoxicillin")
+d.oral.melt <- melt(d.oral)
+d.gut <- cbind(sample(na.omit(cipro.gut$D), size = sample.size),
+               sample(na.omit(clinda.gut$D), size = sample.size),
+               sample(na.omit(minoc.gut$D), size = sample.size),
+               sample(na.omit(amox.gut$D), size = sample.size))
+colnames(d.gut) <- c("Ciprofloxacin", "Clindamycin", "Minocycline", "Amoxicillin")
+d.gut.melt <- melt(d.gut)
+p.d <- ggplot(d.oral.melt, aes(x=value, group=Var2, colour=Var2))+
+  geom_density(linetype='dashed')+
+  scale_color_manual(values=c("green", "red", "purple", "orange"))+
+  geom_density(data=d.gut.melt, aes(x=value, group=Var2, colour=Var2))+
+  facet_wrap(~Var2, ncol=1)+
+  theme(axis.text=element_text(colour='black'))+
+  theme(legend.position="none")+
+  ylim(c(0,0.75))+
+  xlim(c(0,10))+
+  xlab("")+ylab("")+theme(strip.background=element_blank(), strip.text=element_blank())+
+  theme_bw()+
+  guides(colour=FALSE)+
+  ggtitle("Strength of perturbation (D)")+
+  theme(plot.title = element_text(size=18, hjust=0.5))
+
+# Parameter: asymptote
+asym.oral <- cbind(sample(na.omit(cipro.oral$Asym), size = sample.size),
+                   sample(na.omit(clinda.oral$Asym), size = sample.size),
+                   sample(na.omit(minoc.oral$Asym), size = sample.size),
+                   sample(na.omit(amox.oral$Asym), size = sample.size))
+colnames(asym.oral) <- c("Ciprofloxacin", "Clindamycin", "Minocycline", "Amoxicillin")
+asym.oral.melt <- melt(asym.oral)
+asym.gut <- cbind(sample(na.omit(cipro.gut$Asym), size = sample.size),
+                  sample(na.omit(clinda.gut$Asym), size = sample.size),
+                  sample(na.omit(minoc.gut$Asym), size = sample.size),
+                  sample(na.omit(amox.gut$Asym), size = sample.size))
+colnames(asym.gut) <- c("Ciprofloxacin", "Clindamycin", "Minocycline", "Amoxicillin")
+asym.gut.melt <- melt(asym.gut)
+p.asym <- ggplot(asym.oral.melt, aes(x=value, group=Var2, colour=Var2))+
+  geom_density(linetype='dashed')+
+  scale_color_manual(values=c("green", "red", "purple", "orange"))+
+  geom_density(data=asym.gut.melt, aes(x=value, group=Var2, colour=Var2))+
+  facet_wrap(~Var2, ncol=1)+
+  theme(axis.text=element_text(colour='black'))+
+  theme(legend.position="none")+
+  ylim(c(0,1.5))+
+  xlab("")+ylab("")+theme(strip.background=element_blank(), strip.text=element_blank())+
+  theme_bw()+
+  guides(colour=FALSE)+
+  ggtitle("Asymptote parameter (A)")+
+  theme(plot.title = element_text(size=18, hjust=0.5))
+
+# PARAMETER: phi1
+phi1.oral <- cbind(sample(na.omit(cipro.oral$phi1), size = sample.size),
+                   sample(na.omit(clinda.oral$phi1), size = sample.size),
+                   sample(na.omit(minoc.oral$phi1), size = sample.size),
+                   sample(na.omit(amox.oral$phi1), size = sample.size))
+colnames(phi1.oral) <- c("Ciprofloxacin", "Clindamycin", "Minocycline", "Amoxicillin")
+phi1.oral.melt <- melt(phi1.oral)
+phi1.gut <- cbind(sample(na.omit(cipro.gut$phi1), size = sample.size),
+                  sample(na.omit(clinda.gut$phi1), size = sample.size),
+                  sample(na.omit(minoc.gut$phi1), size = sample.size),
+                  sample(na.omit(amox.gut$phi1), size = sample.size))
+colnames(phi1.gut) <- c("Ciprofloxacin", "Clindamycin", "Minocycline", "Amoxicillin")
+phi1.gut.melt <- melt(phi1.gut)
+p.phi1 <- ggplot(phi1.oral.melt, aes(x=value, group=Var2, colour=Var2))+
+  geom_density(linetype='dashed')+
+  scale_color_manual(values=c("green", "red", "purple", "orange"))+
+  geom_density(data=phi1.gut.melt, aes(x=value, group=Var2, colour=Var2))+
+  facet_wrap(~Var2, ncol=1)+
+  theme(axis.text=element_text(colour='black'))+
+  theme(legend.position="none")+
+  ylim(ylimits)+
+  xlab("")+ylab("")+theme(strip.background=element_blank(), strip.text=element_blank())
+
+
+# Parameter: phi2
+phi2.oral <- cbind(sample(na.omit(cipro.oral$phi2), size = sample.size),
+                   sample(na.omit(clinda.oral$phi2), size = sample.size),
+                   sample(na.omit(minoc.oral$phi2), size = sample.size),
+                   sample(na.omit(amox.oral$phi2), size = sample.size))
+colnames(phi2.oral) <- c("Ciprofloxacin", "Clindamycin", "Minocycline", "Amoxicillin")
+phi2.oral.melt <- melt(phi2.oral)
+phi2.gut <- cbind(sample(na.omit(cipro.gut$phi2), size = sample.size),
+                  sample(na.omit(clinda.gut$phi2), size = sample.size),
+                  sample(na.omit(minoc.gut$phi2), size = sample.size),
+                  sample(na.omit(amox.gut$phi2), size = sample.size))
+colnames(phi2.gut) <- c("Ciprofloxacin", "Clindamycin", "Minocycline", "Amoxicillin")
+phi2.gut.melt <- melt(phi2.gut)
+p.phi2 <- ggplot(phi2.oral.melt, aes(x=value, group=Var2, colour=Var2))+
+  geom_density(linetype='dashed')+
+  scale_color_manual(values=c("green", "red", "purple", "orange"))+
+  geom_density(data=phi2.gut.melt, aes(x=value, group=Var2, colour=Var2))+
+  facet_wrap(~Var2, ncol=1)+
+  theme(axis.text=element_text(colour='black'))+
+  theme(legend.position="none")+
+  ylim(ylimits)+
+  xlab("")+ylab("")+theme(strip.background=element_blank(), strip.text=element_blank())
+
+# PARAMETER: b
+ylimits.b.k <-  c(0,3.75)
+b.oral.melt <- melt(exp(phi1.oral) + exp(phi2.oral))
+b.gut.melt <- melt(exp(phi1.gut) + exp(phi2.gut))
+p.b <- ggplot(b.oral.melt, aes(x=value, group=Var2, colour=Var2))+
+  geom_density(linetype='dashed')+
+  scale_color_manual(values=c("green", "red", "purple", "orange"))+
+  geom_density(data=b.gut.melt, aes(x=value, group=Var2, colour=Var2))+
+  facet_wrap(~Var2, ncol=1)+
+  theme(axis.text=element_text(colour='black'))+
+  theme(legend.position="none")+
+  #ylim(ylimits)+
+  xlab("")+ylab("")+theme(strip.background=element_blank(), strip.text=element_blank())+
+  xlim(c(0,10))+
+  ylim(c(0,1))+
+  theme(axis.text.y = element_blank())+
+  theme_bw()+
+  guides(colour=FALSE)+
+  ggtitle("Strength of damping (b)")+
+  theme(plot.title = element_text(size=18, hjust=0.5))
+
+# PARAMETER: k
+k.oral.melt <- melt(exp(phi1.oral + phi2.oral))
+k.gut.melt <- melt(exp(phi1.gut + phi2.gut))
+p.k <- ggplot(k.oral.melt, aes(x=value, group=Var2, colour=Var2))+
+  geom_density(linetype='dashed')+
+  scale_color_manual(values=c("green", "red", "purple", "orange"))+
+  geom_density(data=k.gut.melt, aes(x=value, group=Var2, colour=Var2))+
+  facet_wrap(~Var2, ncol=1)+
+  theme(axis.text=element_text(colour='black'))+
+  theme(legend.position="none")+
+  #ylim(ylimits)+
+  xlab("")+ylab("")+theme(strip.background=element_blank(), strip.text=element_blank())+
+  xlim(c(0,5))+
+  ylim(ylimits.b.k)+
+  theme(axis.text.y = element_blank())+
+  theme_bw()+
+  guides(colour=FALSE)+
+  ggtitle("Strength of restoring force (k)")+
+  theme(plot.title = element_text(size=18, hjust=0.5))
+
+# Multiplot
+library(easyGgplot2)
+pdf('figures/Figure-4-parameter-plots.pdf', width=15, height=10)
+easyGgplot2::ggplot2.multiplot(p.d, p.asym, p.b, p.k, cols = 4)
+dev.off()
+```
+## Table 3
+We save the 95% credible intervals for all parameters for the model fits as separate tables, which are then combined to produce Table 3 in the main manuscript. Please note that due to the stochastic nature of the fitting of the model there will likely be some small discrepancies in the intervals produced from this script compared to the published version. 
+
+```{r supplementary-table-1, warning=FALSE, cache=cacheing}
+# Gut
+cipro.gut <- extract(readRDS('fitted-objects/gut-cipro-full-model.rds'))
+clinda.gut <- extract(readRDS('fitted-objects/gut-clinda-full-model.rds'))
+amox.gut <- extract(readRDS('fitted-objects/gut-amox-full-model.rds'))
+minoc.gut <- extract(readRDS('fitted-objects/gut-minoc-full-model.rds'))
+# Oral
+cipro.oral <- extract(readRDS('fitted-objects/oral-cipro-full-model.rds'))
+clinda.oral <- extract(readRDS('fitted-objects/oral-clinda-full-model.rds'))
+amox.oral <- extract(readRDS('fitted-objects/oral-amox-full-model.rds'))
+minoc.oral <- extract(readRDS('fitted-objects/oral-minoc-full-model.rds'))
+
+# Make tables
+rows <- c("cipro.gut", "clinda.gut", "amox.gut", "minoc.gut",
+          "cipro.oral", "clinda.oral", "amox.oral", "minoc.oral")
+D.posterior <- data.frame(rbind(myround(quantile(cipro.gut$D, probs = c(0.5, 0.05, 0.95)), 2),
+                                myround(quantile(clinda.gut$D, probs = c(0.5, 0.05, 0.95)), 2),
+                                myround(quantile(amox.gut$D, probs = c(0.5, 0.05, 0.95)), 2),
+                                myround(quantile(minoc.gut$D, probs = c(0.5, 0.05, 0.95)), 2),
+                                myround(quantile(cipro.oral$D, probs = c(0.5, 0.05, 0.95)), 2),
+                                myround(quantile(clinda.oral$D, probs = c(0.5, 0.05, 0.95)), 2),
+                                myround(quantile(amox.oral$D, probs = c(0.5, 0.05, 0.95)), 2),
+                                myround(quantile(minoc.oral$D, probs = c(0.5, 0.05, 0.95)), 2)))
+colnames(D.posterior) <- c("median", "2", "3")
+rownames(D.posterior) <- rows
+D.posterior$credible.interval.95 <-  paste("(", D.posterior[,2], "--", D.posterior[,3], ")", sep="")
+D.posterior[,c("2", "3")] <- NULL
+write.csv(D.posterior, file='fitted-objects/parameter-credible-intervals-D.csv', row.names=TRUE, quote=T)
+kable(D.posterior)
+
+# Asym
+Asym.posterior <- data.frame(rbind(myround(quantile(cipro.gut$Asym, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(clinda.gut$Asym, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(amox.gut$Asym, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(minoc.gut$Asym, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(cipro.oral$Asym, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(clinda.oral$Asym, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(amox.oral$Asym, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(minoc.oral$Asym, probs = c(0.5, 0.05, 0.95)), 2)))
+colnames(Asym.posterior) <- c("median", "2", "3")
+rownames(Asym.posterior) <- rows
+Asym.posterior$credible.interval.95 <-  paste("(", Asym.posterior[,2], "--", Asym.posterior[,3], ")", sep="")
+Asym.posterior[,c("2", "3")] <- NULL
+write.csv(Asym.posterior, file='fitted-objects/parameter-credible-intervals-Asym.csv', row.names=TRUE, quote=T)
+kable(Asym.posterior)
+
+# Phi1
+phi1.posterior <- data.frame(rbind(myround(quantile(cipro.gut$phi1, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(clinda.gut$phi1, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(amox.gut$phi1, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(minoc.gut$phi1, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(cipro.oral$phi1, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(clinda.oral$phi1, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(amox.oral$phi1, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(minoc.oral$phi1, probs = c(0.5, 0.05, 0.95)), 2)))
+colnames(phi1.posterior) <- c("median", "2", "3")
+rownames(phi1.posterior) <- rows
+phi1.posterior$credible.interval.95 <- paste("(", phi1.posterior[,2], "--", phi1.posterior[,3], ")", sep="")
+phi1.posterior[,c("2", "3")] <- NULL
+write.csv(phi1.posterior, file='fitted-objects/parameter-credible-intervals-phi1.csv', row.names=TRUE, quote=T)
+kable(phi1.posterior)
+
+# Phi2
+phi2.posterior <- data.frame(rbind(myround(quantile(cipro.gut$phi2, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(clinda.gut$phi2, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(amox.gut$phi2, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(minoc.gut$phi2, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(cipro.oral$phi2, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(clinda.oral$phi2, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(amox.oral$phi2, probs = c(0.5, 0.05, 0.95)), 2),
+                                   myround(quantile(minoc.oral$phi2, probs = c(0.5, 0.05, 0.95)), 2)))
+colnames(phi2.posterior) <- c("median", "2", "3")
+rownames(phi2.posterior) <- rows
+phi2.posterior$credible.interval.95 <- paste("(", phi2.posterior[,2], "--", phi2.posterior[,3], ")", sep="")
+phi2.posterior[,c("2", "3")] <- NULL
+write.csv(phi2.posterior, file='fitted-objects/parameter-credible-intervals-phi2.csv', row.names=TRUE, quote=T)
+kable(phi2.posterior)
+```
+
+########linear regression analysis##########
+library(dplyr)
+library(ggpmisc)
+library(ggpubr)
+library(RColorBrewer)
+# Same, but with different colors and add regression lines
+dat<- read.csv("1.csv",header=TRUE)
+cbbPalette <- c( "#009ad6","#6950a1","#f58220", "#7fb80e","#00ae9d")
+ggplot(dat, aes(x=RA, y=BC, color=stress)) +
+  theme( panel.background = element_rect(color = 'black', fill = 'transparent'), legend.key = element_rect(fill = 'transparent')) +
+  geom_point(size = 4, alpha = 0.7) + 
+  scale_colour_hue(l=50) + # Use a slightly darker palette than normal
+  geom_smooth(method=lm,   # Add linear regression lines
+              se=FALSE) +# Don't add shaded confidence region
+  scale_x_continuous(breaks=c(0,5,10,15,20,25,30),limits = c(0,30))+
+  scale_y_continuous(breaks=c(0,0.8,0.9,1),limits = c(0.8,1))+
+  scale_colour_manual(values=cbbPalette)+
+  stat_fit_glance(method = 'lm',
+                  method.args = list(formula = y ~ x),
+                  mapping = aes(label = sprintf('R^2~"="~%.3f~~italic(P)~"="~%.2g', stat(r.squared), stat(p.value))),
+                  parse = TRUE,label.x = c(0.9,0.9,0.9,0.9,0.9), label.y = c(0.10,0.17,0.24,0.31,0.38), family = "SH") 
+
+scale_x_continuous(breaks=c(0,1,2,3,4,5),limits = c(0,5))+
+scale_y_continuous(breaks=c(0,0.3,0.4,0.5,0.6,0.7,0.8),limits = c(0.3,0.8))+
+
+  scale_x_continuous(breaks=c(0,5,10,15,20),limits = c(0,21))+
+  scale_y_continuous(breaks=c(0,0.7,0.8,0.9,1),limits = c(0.8,1))
+  
+dat<- read.csv("1.csv",header=TRUE)
+ggplot(dat, aes(x=RA, y=BC, fill=fertilizer,color=fertilizer,shape=fertilizer)) +
+  theme( panel.background = element_rect(color = 'black', fill = 'transparent'), legend.key = element_rect(fill = 'transparent')) +
+  geom_point(size = 3, alpha = 0.7) + 
+  scale_shape_manual(values=c(21,22))+
+  geom_smooth(method=lm,   # Add linear regression lines
+              se=FALSE) +# Don't add shaded confidence region
+  scale_x_continuous(breaks=c(0,5,10,15,20,25,30),limits = c(0,30))+
+  scale_y_continuous(breaks=c(0,0.8,0.9,1),limits = c(0.8,1))+
+  stat_fit_glance(method = 'lm',
+                  method.args = list(formula = y ~ x),
+                  mapping = aes(label = sprintf('R^2~"="~%.3f~~italic(P)~"="~%.2g', stat(r.squared), stat(p.value))),
+                  parse = TRUE,label.x = c(0.9,0.9,0.9,0.9,0.9), label.y = c(0.10,0.17,0.24,0.31,0.38), family = "SH") 
+
+
+lm1 <- lm( data = dat,formula = RA ~ BC + I(BC^2) )
+f2 <- RA ~ BC + I(BC^2) 
+summary(lm1)
+AIC(lm1)
+# Extend regression lines
+geom_smooth(method=lm,   # Add linear regression lines
+            se=FALSE,    # Don't add shaded confidence region
+            fullrange=TRUE) # Extend regression lines
+# Set shape by cond
+ggplot(dat, aes(x=xvar, y=yvar, shape=cond)) + geom_point()
+# Same, but with different shapes
+ggplot(dat, aes(x=xvar, y=yvar, shape=cond)) + geom_point() +
+  scale_shape_manual(values=c(1,2))  # Use a hollow circle and triangle
+   
